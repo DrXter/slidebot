@@ -102,6 +102,10 @@ with st.sidebar:
         st.error("Cannot reach Ollama. Start it with: ollama serve")
         model_name = st.text_input("Model", model_name)
 
+    quality = "best" if st.radio("Quality", ["Best (plan, write, check, refine)", "Fast (single pass)"], index=0).startswith("Best") else "fast"
+    num_ctx = st.select_slider("Context window (tokens)", options=[8192, 16384, 32768], value=16384,
+                               help="Larger reads more of long documents but needs more memory")
+
     up = st.file_uploader("Source document", type=["docx", "txt", "md", "pdf"])
     if up and up.name != st.session_state.source_name:
         st.session_state.source = read_source(up)
@@ -130,7 +134,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Invalid deck JSON: {e}")
 
-llm = LLM(model=model_name, host=host)
+llm = LLM(model=model_name, host=host, quality=quality, num_ctx=num_ctx)
 
 # ---------- layout --------------------------------------------------------------------
 left, right = st.columns([5, 6])
@@ -155,7 +159,7 @@ if prompt:
             push_undo()
             pos = route.slide_number - 1 if route.slide_number and 1 <= route.slide_number <= len(deck) + 1 else len(deck)
             deck.insert(pos, slide)
-            say("assistant", f"{route.reply}\n\nAdded slide {pos + 1} ({layout}).")
+            say("assistant", f"{route.reply}\n\nAdded slide {pos + 1} ({layout}).\n\n`{' > '.join(llm.log)}`")
         elif route.action == "edit_slide":
             i = (route.slide_number or len(deck)) - 1
             if not 0 <= i < len(deck):
@@ -164,7 +168,7 @@ if prompt:
                 with st.spinner(f"Editing slide {i + 1}..."):
                     new = llm.edit(deck[i], prompt, st.session_state.source)
                 push_undo(); deck[i] = new
-                say("assistant", f"{route.reply}\n\nUpdated slide {i + 1}.")
+                say("assistant", f"{route.reply}\n\nUpdated slide {i + 1}.\n\n`{' > '.join(llm.log)}`")
         elif route.action == "delete_slide":
             i = (route.slide_number or 0) - 1
             if 0 <= i < len(deck):

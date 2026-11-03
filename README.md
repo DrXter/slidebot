@@ -66,15 +66,33 @@ streamlit run app.py
 3. Check the preview, tweak any slide's JSON directly with **Edit JSON**, use **Undo** if needed.
 4. **Download PowerPoint**. You can also save and reload the deck as JSON.
 
+## How it keeps quality up
+
+In **Best** mode (sidebar, default) every new or edited slide goes through:
+
+1. **Plan**: the model first writes free-text notes: the single message, how to split the content, taglines, facts to use.
+2. **Write**: JSON constrained by the layout schema, guided by a worked example of the same layout (`examples.py`).
+3. **Check** (`quality.py`, in code): word limits per field, sentence case, buzzwords, numbers not found in the source, duplicates, uneven columns.
+4. **Refine**: the model fixes exactly the flagged issues (up to two rounds).
+
+The steps taken are shown under each reply, e.g. `plan written > slide written > check 1: 3 issue(s) > check 2: 0 issue(s)`.
+**Fast** mode skips planning and refining.
+
+To raise quality further, add your own best slides to `examples.py`: the model copies tone and length from examples more than from rules.
+
 ## Choosing a model
 
-| Model | Notes |
-|---|---|
-| `qwen2.5:14b` (default) | Best balance of quality and JSON reliability; needs ~10 GB RAM/VRAM |
-| `qwen2.5:7b` / `llama3.1:8b` | Lighter; more editing needed |
-| `qwen2.5:32b` | Better condensing of long documents; needs a larger GPU |
+Content quality depends mostly on model size. The layout is identical whatever model you use.
 
-The app retries automatically if the model returns invalid JSON.
+| Model | Memory needed (approx.) | Notes |
+|---|---|---|
+| `qwen2.5:14b` (default) | 10 GB | Good JSON reliability; adequate writing |
+| `qwen2.5:32b` / `qwen3:32b` | 20-24 GB | Clearly better condensing and taglines; recommended if you have the memory |
+| `gemma3:27b` | 18 GB | Strong writing quality |
+| `llama3.3:70b` | 43 GB | Closest to hosted-model quality; needs a large GPU or lots of RAM |
+| `qwen2.5:7b` / `llama3.1:8b` | 5-6 GB | Fast, but expect more editing |
+
+Switch models with `ollama pull <model>` and pick it in the sidebar. Use the 32k context window for long documents if you have the memory.
 
 ## Customising
 
@@ -90,6 +108,8 @@ The app retries automatically if the model returns invalid JSON.
 |---|---|
 | `app.py` | Streamlit chat UI, deck state, previews, downloads |
 | `llm.py` | Ollama calls: route, generate, edit (structured outputs) |
+| `examples.py` | Worked examples per layout (few-shot) |
+| `quality.py` | Code-level quality checks and auto-fixes |
 | `schemas.py` | Pydantic models for each layout (also the JSON schemas sent to Ollama) |
 | `renderer.py` | JSON → .pptx layouts and brand tokens |
 | `icons/` | Icon PNGs (white, dark, green) |
