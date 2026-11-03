@@ -1,0 +1,202 @@
+"""SlideBot: a local chat assistant that builds branded slides.
+
+Run:  streamlit run app.py
+Needs Ollama running locally (ollama serve) with a model pulled (e.g. ollama pull qwen2.5:14b).
+"""
+import copy
+import glob
+import hashlib
+import io
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+
+import streamlit as st
+
+from llm import LLM, outline
+from renderer import render_deck
+from schemas import LAYOUTS
+
+st.set_page_config(page_title="SlideBot", layout="wide")
+
+
+# ---------- helpers -------------------------------------------------------------
+def read_source(upload):
+    name = upload.name.lower()
+    data = upload.getvalue()
+    if name.endswith(".docx"):
+        import docx
+        d = docx.Document(io.BytesIO(data))
+        parts = [p.text for p in d.paragraphs if p.text.strip()]
+        for t in d.tables:
+            for r in t.rows:
+                parts.append(" | ".join(c.text.strip() for c in r.cells))
+        return "\n".join(parts)
+    if name.endswith(".pdf"):
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            st.error("Install pypdf to read PDFs: pip install pypdf")
+            return ""
+        return "\n".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(data)).pages)
+    return data.decode("utf-8", errors="ignore")
+
+
+@st.cache_data(show_spinner=False)
+def previews(pptx_bytes):
+    """Render slide thumbnails with LibreOffice if it is installed; otherwise return []."""
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        return []
+    with tempfile.TemporaryDirectory() as tmp:
+        src = os.path.join(tmp, "deck.pptx")
+        open(src, "wb").write(pptx_bytes)
+        subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", tmp, src],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
+        pdf = os.path.join(tmp, "deck.pdf")
+        if not os.path.exists(pdf):
+            return []
+        if shutil.which("pdftoppm"):
+            subprocess.run(["pdftoppm", "-png", "-r", "60", pdf, os.path.join(tmp, "p")], timeout=120)
+            return [open(f, "rb").read() for f in sorted(glob.glob(os.path.join(tmp, "p-*.png")))]
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(pdf)
+            return [pg.get_pixmap(dpi=60).tobytes("png") for pg in doc]
+        except ImportError:
+            return []
+
+
+def push_undo():
+    st.session_state.undo.append(copy.deepcopy(st.session_state.deck))
+    st.session_state.undo = st.session_state.undo[-20:]
+
+
+def say(role, content):
+    st.session_state.chat.append({"role": role, "content": content})
+
+
+# ---------- state -----------------------------------------------------------------
+for k, v in {"deck": [], "chat": [], "undo": [], "source": "", "source_name": ""}.items():
+    st.session_state.setdefault(k, v)
+
+# ---------- sidebar -----------------------------------------------------------------
+with st.sidebar:
+    st.header("SlideBot")
+    host = st.text_input("Ollama host", "http://localhost:11434")
+    model_name = "qwen2.5:14b"
+    try:
+        from ollama import Client
+        names = [m.model for m in Client(host=host).list().models]
+        if names:
+            model_name = st.selectbox("Model", names, index=names.index(model_name) if model_name in names else 0)
+        else:
+            st.warning("No models found. Run: ollama pull qwen2.5:14b")
+    except Exception:
+        st.error("Cannot reach Ollama. Start it with: ollama serve")
+        model_name = st.text_input("Model", model_name)
+
+    up = st.file_uploader("Source document", type=["docx", "txt", "md", "pdf"])
+    if up and up.name != st.session_state.source_name:
+        st.session_state.source = read_source(up)
+        st.session_state.source_name = up.name
+        say("assistant", f"Loaded **{up.name}** ({len(st.session_state.source):,} characters). Tell me what slides you want.")
+    if st.session_state.source_name:
+        st.caption(f"Source: {st.session_state.source_name}")
+
+    c1, c2 = st.columns(2)
+    if c1.button("Undo", width="stretch") and st.session_state.undo:
+        st.session_state.deck = st.session_state.undo.pop()
+        say("assistant", "Undone.")
+    if c2.button("Clear deck", width="stretch"):
+        push_undo(); st.session_state.deck = []
+
+    st.divider()
+    st.download_button("Download deck JSON", json.dumps(st.session_state.deck, indent=1),
+                       file_name="deck.json", mime="application/json", width="stretch")
+    jup = st.file_uploader("Load deck JSON", type=["json"], key="jup")
+    if jup and st.button("Replace deck with this JSON", width="stretch"):
+        try:
+            data = json.loads(jup.getvalue())
+            for d in data:
+                LAYOUTS[d["layout"]].model_validate(d)
+            push_undo(); st.session_state.deck = data
+        except Exception as e:
+            st.error(f"Invalid deck JSON: {e}")
+
+llm = LLM(model=model_name, host=host)
+
+# ---------- layout --------------------------------------------------------------------
+left, right = st.columns([5, 6])
+
+with left:
+    st.subheader("Chat")
+    box = st.container(height=560)
+    for m in st.session_state.chat:
+        box.chat_message(m["role"]).markdown(m["content"])
+    prompt = st.chat_input("e.g. 'Make a columns slide on the four workstreams' or 'Shorten slide 2 bullets'")
+
+if prompt:
+    say("user", prompt)
+    deck = st.session_state.deck
+    try:
+        with st.spinner("Thinking..."):
+            route = llm.route(prompt, outline(deck), bool(st.session_state.source))
+        if route.action == "add_slide":
+            layout = route.layout or "columns"
+            with st.spinner(f"Writing a {layout} slide..."):
+                slide = llm.generate(layout, prompt, st.session_state.source, outline(deck))
+            push_undo()
+            pos = route.slide_number - 1 if route.slide_number and 1 <= route.slide_number <= len(deck) + 1 else len(deck)
+            deck.insert(pos, slide)
+            say("assistant", f"{route.reply}\n\nAdded slide {pos + 1} ({layout}).")
+        elif route.action == "edit_slide":
+            i = (route.slide_number or len(deck)) - 1
+            if not 0 <= i < len(deck):
+                say("assistant", "Which slide number should I change?")
+            else:
+                with st.spinner(f"Editing slide {i + 1}..."):
+                    new = llm.edit(deck[i], prompt, st.session_state.source)
+                push_undo(); deck[i] = new
+                say("assistant", f"{route.reply}\n\nUpdated slide {i + 1}.")
+        elif route.action == "delete_slide":
+            i = (route.slide_number or 0) - 1
+            if 0 <= i < len(deck):
+                push_undo(); deck.pop(i)
+                say("assistant", f"Removed slide {i + 1}.")
+            else:
+                say("assistant", "Which slide number should I remove?")
+        else:
+            say("assistant", route.reply)
+    except Exception as e:
+        say("assistant", f"Something went wrong: `{e}`")
+    st.rerun()
+
+with right:
+    st.subheader("Deck")
+    deck = st.session_state.deck
+    if not deck:
+        st.info("No slides yet. Upload a source document and ask for a slide, e.g. "
+                "'Create a cover for Example Client' or 'Turn the phases into a columns slide'.")
+    else:
+        pptx_bytes = render_deck(deck)
+        st.download_button("Download PowerPoint", pptx_bytes, file_name="deck.pptx",
+                           mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                           type="primary", width="stretch")
+        imgs = previews(pptx_bytes)
+        for i, d in enumerate(deck):
+            with st.expander(f"{i + 1}. [{d['layout']}] {d.get('title', '')}", expanded=(i == len(deck) - 1)):
+                if i < len(imgs):
+                    st.image(imgs[i], width="stretch")
+                else:
+                    st.caption("Install LibreOffice to see previews here.")
+                with st.popover("Edit JSON"):
+                    txt = st.text_area("Slide JSON", json.dumps(d, indent=1), height=320, key=f"j{i}_{hashlib.md5(json.dumps(d).encode()).hexdigest()[:6]}")
+                    if st.button("Apply", key=f"a{i}"):
+                        try:
+                            new = json.loads(txt); LAYOUTS[new["layout"]].model_validate(new)
+                            push_undo(); deck[i] = new; st.rerun()
+                        except Exception as e:
+                            st.error(str(e))

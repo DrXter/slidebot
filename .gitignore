@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pptx
+*.pdf
+deck.json
+.streamlit/secrets.toml
