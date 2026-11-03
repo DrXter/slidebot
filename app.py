@@ -21,6 +21,10 @@ from schemas import LAYOUTS
 
 st.set_page_config(page_title="SlideBot", layout="wide")
 
+# Streamlit renamed use_container_width -> width="stretch" in newer releases; support both.
+_ST_VER = tuple(int(x) for x in st.__version__.split(".")[:2])
+FULL = {"width": "stretch"} if _ST_VER >= (1, 48) else {"use_container_width": True}
+
 
 # ---------- helpers -------------------------------------------------------------
 def read_source(upload):
@@ -107,17 +111,17 @@ with st.sidebar:
         st.caption(f"Source: {st.session_state.source_name}")
 
     c1, c2 = st.columns(2)
-    if c1.button("Undo", width="stretch") and st.session_state.undo:
+    if c1.button("Undo", **FULL) and st.session_state.undo:
         st.session_state.deck = st.session_state.undo.pop()
         say("assistant", "Undone.")
-    if c2.button("Clear deck", width="stretch"):
+    if c2.button("Clear deck", **FULL):
         push_undo(); st.session_state.deck = []
 
     st.divider()
     st.download_button("Download deck JSON", json.dumps(st.session_state.deck, indent=1),
-                       file_name="deck.json", mime="application/json", width="stretch")
+                       file_name="deck.json", mime="application/json", **FULL)
     jup = st.file_uploader("Load deck JSON", type=["json"], key="jup")
-    if jup and st.button("Replace deck with this JSON", width="stretch"):
+    if jup and st.button("Replace deck with this JSON", **FULL):
         try:
             data = json.loads(jup.getvalue())
             for d in data:
@@ -184,12 +188,12 @@ with right:
         pptx_bytes = render_deck(deck)
         st.download_button("Download PowerPoint", pptx_bytes, file_name="deck.pptx",
                            mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                           type="primary", width="stretch")
+                           type="primary", **FULL)
         imgs = previews(pptx_bytes)
         for i, d in enumerate(deck):
             with st.expander(f"{i + 1}. [{d['layout']}] {d.get('title', '')}", expanded=(i == len(deck) - 1)):
                 if i < len(imgs):
-                    st.image(imgs[i], width="stretch")
+                    st.image(imgs[i], **FULL)
                 else:
                     st.caption("Install LibreOffice to see previews here.")
                 with st.popover("Edit JSON"):

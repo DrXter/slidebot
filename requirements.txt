@@ -1,5 +1,5 @@
-# SlideBot - Python 3.10+ (RHEL 9: python3.11 or python3.12 from AppStream)
-streamlit>=1.50,<2
+# SlideBot - Python 3.9+ (3.11 recommended). RHEL 9: dnf install python3.11
+streamlit>=1.40,<2
 ollama>=0.4,<1
 python-pptx>=1.0,<2
 python-docx>=1.1,<2
