@@ -108,3 +108,103 @@ core hardening complete (Jun). Protection: central controls first, parallel exce
                   "date_line": "Proposal for discussion, November 2026"},
     },
 }
+
+EXAMPLES.update({
+    "flow": {
+        "source": """Every work package follows the same path: prioritise by risk reduction versus effort; select a central lever
+(GPO, Intune, gold image, golden config, IaC, Azure Policy) before any asset-level fix; pilot on a test group; approve and roll
+out through change management in the tower's change window; revalidate through reassessment; close with evidence on the risk
+reduction dashboard. Findings still open go back for another lever. Constraints found in the pilot go to exception governance.""",
+        "slide": {
+            "layout": "flow", "title": "How remediation flows end to end",
+            "subtitle": "Every work package follows the same controlled path",
+            "steps": [
+                {"icon": "inbox", "title": "Prioritised work package", "text": "Ranked by risk reduction versus implementation effort", "label": "Owner: programme team"},
+                {"icon": "layers", "title": "Select central lever", "text": "GPO, Intune, gold image, golden config, IaC or Azure Policy first", "label": "Owner: tower lead"},
+                {"icon": "search", "title": "Pilot and test", "text": "Apply to a pilot group and check compatibility", "label": "Owner: tower lead"},
+                {"icon": "clock", "title": "Approve and roll out", "text": "Through change management, in the tower's change window", "label": "Owner: tower lead"},
+                {"icon": "shield", "title": "Revalidate", "text": "Reassessment confirms the control is applied estate-wide", "label": "Owner: programme team"},
+                {"icon": "check", "title": "Close with evidence", "text": "Evidence logged; progress shown on the risk reduction dashboard", "label": "Reported monthly"},
+            ],
+            "loop_note": "Findings still open go back for another lever", "loop_from": 5, "loop_to": 2,
+            "branch_from": 3, "branch_label": "Constraint found", "branch_text": "Exception governance: a time-bound exception with an owner and review date",
+            "principles": ["Risk-ranked sequencing", "Central lever before asset fix", "Tested before rollout", "Evidence-based closure"],
+            "banner": "One repeatable path: fixed centrally, proven by reassessment, or governed as an exception.",
+        },
+    },
+    "stack": {
+        "source": """Clients already hold SOC 2: security and access controls, privacy, change management, incident management,
+operational governance. AI adds new risks traditional frameworks do not test: hallucinations, prompt injection, unsafe autonomous
+actions, data leakage, adversarial manipulation, harmful outputs. The joint offer adds AI governance, AI risk management,
+independent AI assurance, adversarial testing, quarterly validation and board reporting. SOC 2 validates the organisation and its
+controls; the AI standard validates AI systems and agent behaviour. The question is now: can we trust your AI?""",
+        "slide": {
+            "layout": "stack", "title": "Trusted AI starts where SOC 2 ends",
+            "subtitle": "SOC 2 proves the environment is secure; stakeholders now ask whether the AI can be trusted",
+            "layers": [
+                {"kicker": "What clients have today", "title": "SOC 2 foundation", "icon": "shield", "dashed": False,
+                 "chips": ["Security and access", "Privacy", "Change management", "Incident management", "Operational governance"]},
+                {"kicker": "Not tested by SOC 2", "title": "The AI assurance gap", "icon": "warning", "dashed": True,
+                 "chips": ["Hallucinations", "Prompt injection", "Unsafe autonomous actions", "Data leakage", "Adversarial manipulation", "Harmful outputs"]},
+                {"kicker": "What we add", "title": "AI trust layer", "icon": "robot", "dashed": False,
+                 "chips": ["AI governance", "AI risk management", "Independent AI assurance", "Adversarial testing", "Quarterly validation", "Board reporting"]},
+            ],
+            "side_title": "What each one proves", "side_left_label": "SOC 2", "side_right_label": "AI standard",
+            "side_pairs": [["The organisation and its controls", "AI systems and agent behaviour"], ["Security and privacy", "AI trust and safety"], ["Operational resilience", "AI reliability"]],
+            "callout": "Can we trust your AI?",
+            "banner": "Move from 'our systems are secure' to 'our AI can be trusted'.",
+        },
+    },
+    "comparison": {
+        "source": "Today remediation is asset by asset, findings arrive in thousands, exceptions are informal and assessments are periodic. With the programme: estate-wide fixes through central controls, a few work packages, a governed exception register, continuous monitoring.",
+        "slide": {
+            "layout": "comparison", "title": "From periodic findings to continuous assurance",
+            "subtitle": "What changes for engineering teams and risk owners",
+            "left_label": "Today", "right_label": "With the programme", "left_icon": "document", "right_icon": "refresh",
+            "rows": [{"before": "Asset-by-asset remediation", "after": "Estate-wide fixes through central controls"},
+                     {"before": "Thousands of individual findings", "after": "A few prioritised work packages"},
+                     {"before": "Informal exceptions", "after": "Governed, time-bound exception register"},
+                     {"before": "Periodic assessments", "after": "Continuous compliance monitoring"}],
+            "highlight_title": "Why it matters",
+            "highlight_text": "Engineering effort goes into a small number of high-impact changes, and residual risk is visible to leadership.",
+            "banner": "Less effort for technology teams, more evidence for risk owners.",
+        },
+    },
+})
+
+EXAMPLES.update({
+    "hub": {
+        "source": "Four service areas: assess (readiness, AI inventory, control mapping, gap assessment); design (governance framework, risk taxonomy, policies); implement (technical controls, monitoring, human oversight, guardrails); validate (audit readiness, evidence, control testing, certification support). Standard covers six domains: security, data and privacy, reliability, safety, accountability, societal impact; 50+ requirements, 130+ controls, quarterly technical evaluations.",
+        "slide": {
+            "layout": "hub", "title": "How we help clients achieve AI assurance",
+            "subtitle": "End-to-end enablement around a single trust outcome", "centre": "Independent AI assurance",
+            "spokes": [
+                {"icon": "search", "title": "Assess", "items": ["AI readiness and inventory", "Control mapping", "Gap assessment"]},
+                {"icon": "diagram", "title": "Design", "items": ["Governance framework", "AI risk taxonomy", "Policies and procedures"]},
+                {"icon": "layers", "title": "Implement", "items": ["Technical controls", "Monitoring and oversight", "AI guardrails"]},
+                {"icon": "user-check", "title": "Validate", "items": ["Audit readiness and evidence", "Control testing", "Certification support"]},
+            ],
+            "panel_title": "Standard coverage",
+            "panel_tiles": [["shield", "Security"], ["database", "Data and privacy"], ["refresh", "Reliability"], ["user-shield", "Safety"], ["check", "Accountability"], ["team", "Societal impact"]],
+            "panel_stats": [{"value": "50+", "label": "requirements"}, {"value": "130+", "label": "controls"}, {"value": "6", "label": "trust domains"}],
+            "panel_note": "Six trust domains, independently tested.",
+            "banner": "One assurance journey from readiness to certification.",
+        },
+    },
+    "quad": {
+        "source": "Deloitte designs, implements and operationalises AI governance. The independent standard validates that AI operates responsibly, securely and reliably. Together: build stakeholder trust, accelerate AI adoption, differentiate in the market, strengthen AI governance.",
+        "slide": {
+            "layout": "quad", "title": "Accelerating trusted AI adoption", "subtitle": "Business trust and adoption, not just another certification",
+            "block_a_title": "Deloitte", "block_a_text": "Designs, implements and operationalises AI governance and controls",
+            "block_b_title": "Independent standard", "block_b_text": "Validates that AI operates responsibly, securely and reliably",
+            "centre": "Trusted AI at scale",
+            "cards": [
+                {"icon": "team", "title": "Build stakeholder trust", "text": "Show responsible AI practices to customers, boards and regulators."},
+                {"icon": "robot", "title": "Accelerate AI adoption", "text": "Deploy AI with greater confidence and less risk."},
+                {"icon": "shield", "title": "Differentiate in the market", "text": "Independent assurance that eases procurement reviews."},
+                {"icon": "user-shield", "title": "Strengthen AI governance", "text": "Oversight and risk management that scale with every use case."},
+            ],
+            "tagline": "Trust is the new currency of AI.",
+        },
+    },
+})

@@ -15,7 +15,7 @@ import tempfile
 
 import streamlit as st
 
-from llm import LLM, outline
+from llm import LLM, outline, plan_text
 from renderer import render_deck
 from schemas import LAYOUTS
 
@@ -83,7 +83,7 @@ def say(role, content):
 
 
 # ---------- state -----------------------------------------------------------------
-for k, v in {"deck": [], "chat": [], "undo": [], "source": "", "source_name": ""}.items():
+for k, v in {"deck": [], "chat": [], "undo": [], "source": "", "source_name": "", "plan": None}.items():
     st.session_state.setdefault(k, v)
 
 # ---------- sidebar -----------------------------------------------------------------
@@ -102,7 +102,16 @@ with st.sidebar:
         st.error("Cannot reach Ollama. Start it with: ollama serve")
         model_name = st.text_input("Model", model_name)
 
-    quality = "best" if st.radio("Quality", ["Best (plan, write, check, refine)", "Fast (single pass)"], index=0).startswith("Best") else "fast"
+    quality = "best" if st.radio("Quality", ["Best (plan, write, check, review, refine)", "Fast (single pass)"], index=0).startswith("Best") else "fast"
+    vision_model = None
+    try:
+        vis_opts = ["(none)"] + names
+    except NameError:
+        vis_opts = ["(none)"]
+    vsel = st.selectbox("Visual review model (optional)", vis_opts, index=0,
+                        help="A vision model such as gemma3 or qwen2.5vl looks at each rendered slide and flags overflow or clutter. Needs LibreOffice.")
+    if vsel != "(none)":
+        vision_model = vsel
     num_ctx = st.select_slider("Context window (tokens)", options=[8192, 16384, 32768], value=16384,
                                help="Larger reads more of long documents but needs more memory")
 
@@ -134,7 +143,12 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Invalid deck JSON: {e}")
 
-llm = LLM(model=model_name, host=host, quality=quality, num_ctx=num_ctx)
+def render_png(slide):
+    imgs = previews(render_deck([slide]))
+    return imgs[0] if imgs else None
+
+
+llm = LLM(model=model_name, host=host, quality=quality, num_ctx=num_ctx, vision_model=vision_model, render_png=render_png)
 
 # ---------- layout --------------------------------------------------------------------
 left, right = st.columns([5, 6])
@@ -144,15 +158,35 @@ with left:
     box = st.container(height=560)
     for m in st.session_state.chat:
         box.chat_message(m["role"]).markdown(m["content"])
-    prompt = st.chat_input("e.g. 'Make a columns slide on the four workstreams' or 'Shorten slide 2 bullets'")
+    prompt = st.chat_input("e.g. 'Plan a deck from this document', 'Add a comparison slide', 'Shorten slide 2'")
 
 if prompt:
     say("user", prompt)
     deck = st.session_state.deck
     try:
         with st.spinner("Thinking..."):
-            route = llm.route(prompt, outline(deck), bool(st.session_state.source))
-        if route.action == "add_slide":
+            route = llm.route(prompt, outline(deck), bool(st.session_state.source), st.session_state.plan is not None)
+        if route.action == "plan_deck":
+            with st.spinner("Reading the source and planning the storyline..."):
+                plan = llm.plan_deck(prompt, st.session_state.source, st.session_state.plan)
+            st.session_state.plan = plan
+            say("assistant", plan_text(plan))
+        elif route.action == "build_plan" and st.session_state.plan:
+            plan = st.session_state.plan
+            push_undo()
+            prog = st.progress(0.0, text="Building slides...")
+            notes = []
+            for n, p in enumerate(plan["slides"], 1):
+                prog.progress((n - 1) / len(plan["slides"]), text=f"Slide {n}/{len(plan['slides'])}: {p['title']}")
+                req = f"Title: {p['title']}. Message: {p['message']}. Content: {p['content']}. Deck storyline: {plan['storyline']}"
+                slide = llm.generate(p["layout"], req, st.session_state.source, outline(deck))
+                deck.append(slide)
+                notes.append(f"{len(deck)}. {p['layout']}: `{' > '.join(llm.log)}`")
+            prog.empty()
+            st.session_state.plan = None
+            say("assistant", f"Built {len(plan['slides'])} slides.\n\n" + "\n".join(notes) +
+                "\n\nReview them on the right; ask me to change any slide by number.")
+        elif route.action == "add_slide":
             layout = route.layout or "columns"
             with st.spinner(f"Writing a {layout} slide..."):
                 slide = llm.generate(layout, prompt, st.session_state.source, outline(deck))
@@ -186,8 +220,9 @@ with right:
     st.subheader("Deck")
     deck = st.session_state.deck
     if not deck:
-        st.info("No slides yet. Upload a source document and ask for a slide, e.g. "
-                "'Create a cover for Example Client' or 'Turn the phases into a columns slide'.")
+        st.info("No slides yet. Upload a source document, then ask: 'Plan a deck from this document'. "
+                "I'll propose a storyline with a different visual per slide; say 'build it' to create them. "
+                "You can also ask for single slides, e.g. 'Add a flow slide on the remediation process'.")
     else:
         pptx_bytes = render_deck(deck)
         st.download_button("Download PowerPoint", pptx_bytes, file_name="deck.pptx",

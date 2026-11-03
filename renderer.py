@@ -80,9 +80,19 @@ def oval(s, cx, cy, d, fill, line=None):
     return nostyle(o)
 
 
+RECORD = None   # when a list, every text box is logged for the overflow check
+
+
 def text(s, runs, x, y, w, h, size=12, color=None, bold=False, italic=False, align="l", anchor="t", spacing=None):
     """runs: str, or list of paragraphs; each paragraph a str or list of (text, opts)."""
     tb = s.shapes.add_textbox(I(x), I(y), I(w), I(h))
+    if RECORD is not None:
+        paras_ = runs if isinstance(runs, list) else [runs]
+        rec = []
+        for para in paras_:
+            segs = para if isinstance(para, list) else [(para, {})]
+            rec.append([(t, o.get("size", size), o.get("bold", bold)) for t, o in segs])
+        RECORD.append({"w": w, "h": h, "paras": rec, "spacing": spacing or 1.0})
     tf = tb.text_frame; tf.word_wrap = True
     tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
     tf.vertical_anchor = {"t": MSO_ANCHOR.TOP, "m": MSO_ANCHOR.MIDDLE, "b": MSO_ANCHOR.BOTTOM}[anchor]
@@ -296,7 +306,7 @@ def render_timeline(prs, d):
             text(s, m["label"], x + 0.27, y, half - 0.35, 0.24, size=8, color=B["DK"], anchor="m")
     if boxes:
         sx, sw = 9.2, R - 9.2
-        heights = [2.6, 2.1][:len(boxes)] if len(boxes) == 2 else [4.8]
+        heights = [2.6, 2.1] if len(boxes) == 2 else [min(4.8, 0.65 + 0.42 * len(boxes[0]["items"]))]
         y = 1.42
         for bi, bx in enumerate(boxes):
             h = heights[bi]; dark = bi == 0
@@ -333,8 +343,265 @@ def render_grid(prs, d):
         banners(s, "Takeaway", d["banner"], "", "")
 
 
+
+# ---- More visual layouts ---------------------------------------------------------
+import math
+
+
+def block_arc(s, cx, cy, d, start, sweep, fill, thick=0.18):
+    o = s.shapes.add_shape(MSO_SHAPE.BLOCK_ARC, I(cx - d / 2), I(cy - d / 2), I(d), I(d))
+    o.adjustments[0] = (start % 360) * 0.6; o.adjustments[1] = ((start + sweep) % 360) * 0.6; o.adjustments[2] = thick
+    o.fill.solid(); o.fill.fore_color.rgb = rgb(fill); o.line.fill.background(); o.shadow.inherit = False
+    return nostyle(o)
+
+
+def square(s, x, y, c=None):
+    rect(s, x, y, 0.09, 0.09, c or B["G"], radius=0)
+
+
+def bottom_banner(s, label, t, y=6.2):
+    if t:
+        rect(s, L, y, FW, 0.5, B["G"], radius=0.08)
+        text(s, [[(label + "   ", {"bold": True, "size": 9.5, "color": B["DK"]}), (t, {"size": 9.5, "bold": True, "color": B["DK"]})]], L + 0.25, y, FW - 0.5, 0.5, anchor="m")
+
+
+def render_flow(prs, d):
+    s = content_page(prs, d["title"], d.get("subtitle", ""))
+    steps = d["steps"]; n = len(steps); cw = FW / n; cy = 2.55
+    xs = [L + k * cw + cw / 2 for k in range(n)]
+    pal = [B["DK"]] + [B["GD"]] * max(0, n - 3) + [B["G"], B["G"]]
+    pal = pal[:n] if len(pal) >= n else pal + [B["G"]] * (n - len(pal))
+    for k in range(n - 1):
+        line(s, xs[k] + 0.36, cy, xs[k + 1] - 0.36, cy, color=B["G"], width=2.5, head=True)
+    for k, st in enumerate(steps):
+        x = L + k * cw; f = pal[k]
+        badge(s, xs[k], cy, 0.66, f, st["icon"], tone_for(f), 0.5)
+        oval(s, xs[k] - 0.29, cy - 0.29, 0.26, "FFFFFF", line=B["DK"])
+        text(s, str(k + 1), xs[k] - 0.42, cy - 0.42, 0.26, 0.26, size=8, bold=True, color=B["DK"], align="c", anchor="m")
+        rect(s, x + 0.07, 3.0, cw - 0.14, 1.4, "FFFFFF", line=B["MID"])
+        rect(s, x + 0.07, 3.0, cw - 0.14, 0.06, f, radius=0)
+        text(s, st["title"], x + 0.15, 3.08, cw - 0.3, 0.36, size=fit(st["title"], 10, 22), bold=True, color=B["DK"], anchor="m")
+        text(s, st["text"], x + 0.15, 3.44, cw - 0.3, 0.62, size=fit(st["text"], 8.5, 80), color=B["GREY"])
+        if st.get("label"):
+            text(s, st["label"], x + 0.15, 4.1, cw - 0.3, 0.24, size=7.5, bold=True, color=B["GD"], anchor="m")
+    lf, lt = d.get("loop_from", 0), d.get("loop_to", 0)
+    if d.get("loop_note") and 1 <= lt < lf <= n:
+        ly = 1.98
+        line(s, xs[lf - 1], cy - 0.34, xs[lf - 1], ly, color=B["GD"], width=1.5, dash=True)
+        line(s, xs[lf - 1], ly, xs[lt - 1], ly, color=B["GD"], width=1.5, dash=True)
+        line(s, xs[lt - 1], ly, xs[lt - 1], cy - 0.34, color=B["GD"], width=1.5, dash=True, head=True)
+        mid = (xs[lf - 1] + xs[lt - 1]) / 2
+        rect(s, mid - 1.6, ly - 0.12, 3.2, 0.24, "FFFFFF", radius=0)
+        text(s, d["loop_note"], mid - 1.6, ly - 0.12, 3.2, 0.24, size=8, italic=True, color=B["GD"], align="c", anchor="m")
+    bf = d.get("branch_from", 0)
+    if d.get("branch_text") and 1 <= bf <= n:
+        bx = xs[bf - 1]
+        line(s, bx, 4.4, bx, 4.62, color=B["DK"], width=1.5)
+        line(s, bx, 4.62, bx + 0.6, 4.62, color=B["DK"], width=1.5, head=True)
+        if d.get("branch_label"):
+            text(s, d["branch_label"], bx - 1.45, 4.44, 1.4, 0.22, size=8, bold=True, color=B["DK"], align="r", anchor="m")
+        rect(s, bx + 0.62, 4.45, R - bx - 0.62, 0.36, B["TINT"], line=B["GD"], radius=0.18)
+        text(s, d["branch_text"], bx + 0.8, 4.45, R - bx - 1.0, 0.36, size=8.5, color=B["DK"], anchor="m")
+    pr = d.get("principles", [])
+    if pr:
+        text(s, "Built into every step", L, 4.98, 6, 0.3, size=11, bold=True, color=B["GD"], anchor="m")
+        ow = (FW - (len(pr) - 1) * 0.12) / len(pr)
+        for j, o in enumerate(pr):
+            x = L + j * (ow + 0.12)
+            rect(s, x, 5.33, ow, 0.5, B["DK"], radius=0.08)
+            badge(s, x + 0.3, 5.58, 0.32, B["G"], "check", "d", 0.55)
+            text(s, o, x + 0.55, 5.33, ow - 0.62, 0.5, size=fit(o, 9, 40), bold=True, color="FFFFFF", anchor="m")
+    bottom_banner(s, "Business outcome", d.get("banner", ""), y=6.0)
+
+
+def render_stack(prs, d):
+    s = content_page(prs, d["title"], d.get("subtitle", ""))
+    layers = list(d["layers"]); n = len(layers)
+    has_side = bool(d.get("side_pairs") or d.get("callout"))
+    x0, w0 = L, (6.9 if has_side else FW - 0.5)
+    top, bottom = 1.5, 5.65 if d.get("banner") else 6.6
+    lh = (bottom - top - (n - 1) * 0.15) / n
+    for idx, ly in enumerate(reversed(layers)):          # draw top layer first
+        level = n - 1 - idx                              # 0 = foundation
+        inset = 0.25 * level
+        x, w = x0 + inset, w0 - 2 * inset
+        y = top + idx * (lh + 0.15)
+        if ly.get("dashed"):
+            fill, tc, kc = "FFFFFF", B["GD"], B["GREY"]
+            rect(s, x, y, w, lh, fill, line=B["GD"], dash=True)
+        else:
+            fill = B["DK"] if level == 0 else (B["G"] if level == n - 1 else B["GD"])
+            tc = "FFFFFF" if fill != B["G"] else B["DK"]; kc = B["G"] if fill == B["DK"] else ("E3EFC8" if fill == B["GD"] else B["DK"])
+            rect(s, x, y, w, lh, fill)
+        text(s, [[(ly["kicker"], {"bold": True, "size": 8.5, "color": kc})], [(ly["title"], {"bold": True, "size": 14, "color": tc})]], x + 0.2, y + 0.05, w - 1.0, 0.62)
+        icon(s, ly["icon"], "g" if fill == B["DK"] else ("d" if fill in (B["G"], "FFFFFF") else "w"), x + w - 0.45, y + 0.35, 0.38)
+        chips = ly["chips"]; per = 3 if len(chips) > 4 else len(chips)
+        cw = (w - 0.4 - (per - 1) * 0.1) / per
+        rows = (len(chips) + per - 1) // per
+        chh = min(0.3, (lh - 0.75) / max(1, rows) - 0.05)
+        for j, c in enumerate(chips):
+            cx = x + 0.2 + (j % per) * (cw + 0.1); cy = y + 0.72 + (j // per) * (chh + 0.05)
+            if ly.get("dashed"):
+                icon(s, "warning", "g", cx + 0.08, cy + chh / 2, 0.13)
+                text(s, c, cx + 0.22, cy, cw - 0.22, chh, size=8, color=B["DK"], anchor="m")
+            else:
+                rect(s, cx, cy, cw, chh, "FFFFFF" if fill != B["DK"] else B["DK2"], line=None if fill != B["DK"] else B["G"], radius=0.12)
+                text(s, c, cx, cy, cw, chh, size=fit(c, 7.5, 26), bold=True, color=B["DK"] if fill != B["DK"] else "FFFFFF", align="c", anchor="m")
+    line(s, x0 + w0 + 0.25, bottom - 0.2, x0 + w0 + 0.25, top + 0.2, color=B["G"], width=3, head=True)
+    if has_side:
+        rx = 8.2; rw = R - rx; y = 1.42
+        if d.get("side_title"):
+            text(s, d["side_title"], rx, y, rw, 0.3, size=11, bold=True, color=B["GD"], anchor="m"); y += 0.36
+        pairs = d.get("side_pairs", [])
+        if pairs:
+            bw = (rw - 0.6) / 2
+            text(s, d.get("side_left_label", ""), rx, y, bw, 0.26, size=9, bold=True, color=B["GREY"], align="c", anchor="m")
+            text(s, d.get("side_right_label", ""), rx + bw + 0.6, y, bw, 0.26, size=9, bold=True, color=B["GD"], align="c", anchor="m")
+            y += 0.32
+            for a, b in [(p + ["", ""])[:2] for p in pairs]:
+                rect(s, rx, y, bw, 0.52, B["LIGHT"], radius=0.08); text(s, a, rx + 0.08, y, bw - 0.16, 0.52, size=8.5, color=B["DK"], align="c", anchor="m")
+                arrow(s, rx + bw + 0.08, y + 0.16, 0.44, 0.2)
+                rect(s, rx + bw + 0.6, y, bw, 0.52, B["TINT"], line=B["G"], radius=0.08); text(s, b, rx + bw + 0.68, y, bw - 0.16, 0.52, size=8.5, bold=True, color=B["DK"], align="c", anchor="m")
+                y += 0.62
+        if d.get("callout"):
+            cy_ = max(y + 0.1, bottom - 0.95)
+            rect(s, rx, cy_, rw, 0.95, B["DK"], radius=0.08)
+            text(s, d["callout"], rx + 0.25, cy_, rw - 0.4, 0.95, size=fit(d["callout"], 15, 30), bold=True, color="FFFFFF", anchor="m")
+    bottom_banner(s, "Takeaway", d.get("banner", ""), y=5.95)
+
+
+def render_hub(prs, d):
+    s = content_page(prs, d["title"], d.get("subtitle", ""))
+    has_panel = bool(d.get("panel_title"))
+    right = 7.45 if has_panel else R
+    cx = (L + right) / 2; cy = 3.75; D = 2.0
+    cwid = (right - L - D - 0.5) / 2
+    pos = [(L, 1.5), (right - cwid, 1.5), (right - cwid, 3.95), (L, 3.95)]
+    pal = [B["DK"], B["GD"], B["GD"], B["G"]]
+    starts = [180, 270, 0, 90]
+    for k, sp in enumerate(d["spokes"][:4]):
+        f = pal[k]; x, y = pos[k]; h = 2.05
+        block_arc(s, cx, cy, D, starts[k] + 3, 84, f)
+        rect(s, x, y, cwid, h, "FFFFFF", line=B["MID"])
+        rect(s, x, y, cwid, 0.07, f, radius=0)
+        badge(s, x + 0.35, y + 0.42, 0.44, f, sp["icon"], tone_for(f))
+        text(s, [[(str(k + 1), {"bold": True, "size": 8, "color": B["GD"]})], [(sp["title"], {"bold": True, "size": fit(sp["title"], 11, 22), "color": B["DK"]})]], x + 0.66, y + 0.12, cwid - 0.7, 0.6)
+        for j, it in enumerate(sp["items"][:4]):
+            yy = y + 0.8 + j * 0.3
+            square(s, x + 0.15, yy + 0.09)
+            text(s, it, x + 0.3, yy, cwid - 0.38, 0.28, size=fit(it, 8.5, 34), color=B["DK"], anchor="m")
+    oval(s, cx, cy, 1.36, B["TINT"])
+    text(s, d["centre"], cx - 0.6, cy - 0.45, 1.2, 0.9, size=fit(d["centre"], 10.5, 20), bold=True, color=B["DK"], align="c", anchor="m")
+    if has_panel:
+        rx = 7.85; rw = R - rx; ph = 4.5 if d.get("banner") else 5.0
+        rect(s, rx, 1.5, rw, ph, B["DK"])
+        text(s, d["panel_title"], rx + 0.25, 1.58, rw - 0.5, 0.32, size=11, bold=True, color=B["G"], anchor="m")
+        tiles = d.get("panel_tiles", [])[:6]; tw = (rw - 0.7) / 3
+        for j, t in enumerate(tiles):
+            ic, lab = (t + ["check", ""])[:2] if len(t) >= 2 else ("check", t[0] if t else "")
+            ic = ic if ic in ICON_FILES else "check"
+            xx = rx + 0.25 + (j % 3) * (tw + 0.1); yy = 2.0 + (j // 3) * 0.95
+            rect(s, xx, yy, tw, 0.85, B["DK2"], line=B["G"])
+            badge(s, xx + tw / 2, yy + 0.3, 0.38, B["G"], ic, "d", 0.55)
+            text(s, lab, xx, yy + 0.52, tw, 0.28, size=fit(lab, 8.5, 16), bold=True, color="FFFFFF", align="c", anchor="m")
+        y = 2.0 + ((len(tiles) + 2) // 3) * 0.95 + 0.05
+        stats = d.get("panel_stats", [])[:3]
+        for j, st in enumerate(stats):
+            xx = rx + 0.25 + j * (tw + 0.1)
+            text(s, [[(st["value"], {"bold": True, "size": 20, "color": B["G"]})], [(st["label"], {"size": 8, "color": "BFC3C5"})]], xx, y, tw, 0.75, align="c", anchor="m")
+        if d.get("panel_note"):
+            ny = y + (0.85 if stats else 0)
+            line(s, rx + 0.25, ny, rx + rw - 0.25, ny, color="4A4F53", width=0.75)
+            text(s, d["panel_note"], rx + 0.25, ny + 0.06, rw - 0.5, max(0.4, 1.5 + ph - ny - 0.15), size=8.5, color="BFC3C5")
+    bottom_banner(s, "Key benefit", d.get("banner", ""), y=6.2)
+
+
+def render_comparison(prs, d):
+    s = content_page(prs, d["title"], d.get("subtitle", ""))
+    has_hl = bool(d.get("highlight_text"))
+    right = 8.6 if has_hl else R
+    bw = (right - L - 0.9) / 2
+    for side, (lab, ic, x, f) in enumerate([(d["left_label"], d["left_icon"], L, B["DK"]), (d["right_label"], d["right_icon"], L + bw + 0.9, B["G"])]):
+        rect(s, x, 1.45, bw, 0.6, f)
+        badge(s, x + 0.35, 1.75, 0.4, "FFFFFF" if f == B["DK"] else B["DK"], ic, "d" if f == B["DK"] else "w", 0.55)
+        text(s, lab, x + 0.65, 1.45, bw - 0.75, 0.6, size=13, bold=True, color="FFFFFF" if f == B["DK"] else B["DK"], anchor="m")
+    rows = d["rows"]; top = 2.2; bottom = 5.95 if d.get("banner") else 6.6
+    rh = min(0.72, (bottom - top) / len(rows))
+    for j, r in enumerate(rows):
+        y = top + j * rh
+        rect(s, L, y, bw, rh - 0.1, B["LIGHT"])
+        text(s, r["before"], L + 0.2, y, bw - 0.4, rh - 0.1, size=fit(r["before"], 10, 50), color=B["GREY"], anchor="m")
+        arrow(s, L + bw + 0.2, y + (rh - 0.1) / 2 - 0.12, 0.5, 0.24)
+        rect(s, L + bw + 0.9, y, bw, rh - 0.1, B["TINT"], line=B["G"])
+        text(s, r["after"], L + bw + 1.1, y, bw - 0.4, rh - 0.1, size=fit(r["after"], 10, 50), bold=True, color=B["DK"], anchor="m")
+    if has_hl:
+        rx = 8.9; rw = R - rx
+        hh = min(bottom - 1.55, 1.0 + 0.32 * math.ceil(len(d["highlight_text"]) / 34))
+        rect(s, rx, 1.45, rw, hh, B["DK"])
+        text(s, [[(d.get("highlight_title", ""), {"bold": True, "size": 12, "color": B["G"]})], [("", {"size": 6})], [(d["highlight_text"], {"size": 11, "color": "FFFFFF"})]],
+             rx + 0.3, 1.65, rw - 0.6, hh - 0.35, anchor="t")
+    bottom_banner(s, "Takeaway", d.get("banner", ""), y=6.05)
+
+
+def render_quad(prs, d):
+    s = content_page(prs, d["title"], d.get("subtitle", ""))
+    rect(s, L, 1.55, 3.3, 1.75, B["DK"])
+    text(s, [[(d["block_a_title"], {"bold": True, "size": 15, "color": "FFFFFF"})], [(d["block_a_text"], {"size": 9.5, "color": "BFC3C5"})]], L + 0.25, 1.62, 2.85, 1.6)
+    oval(s, L + 1.65, 3.6, 0.44, B["G"]); text(s, "+", L + 1.43, 3.38, 0.44, 0.44, size=18, bold=True, color=B["DK"], align="c", anchor="m")
+    rect(s, L, 3.9, 3.3, 1.45, B["G"])
+    text(s, [[(d["block_b_title"], {"bold": True, "size": 15, "color": B["DK"]})], [(d["block_b_text"], {"size": 9.5, "color": B["DK"]})]], L + 0.25, 3.97, 2.85, 1.3)
+    arrow(s, 4.2, 3.3, 0.55, 0.42)
+    mx, my, mw, mh = 4.95, 1.55, R - 4.95, 3.8
+    tw, th = (mw - 0.15) / 2, (mh - 0.15) / 2
+    pal = [B["DK"], B["GD"], B["GD"], B["G"]]
+    for j, c in enumerate(d["cards"][:4]):
+        x = mx + (j % 2) * (tw + 0.15); y = my + (j // 2) * (th + 0.15); left = j % 2 == 0
+        rect(s, x, y, tw, th, "F7F7F7")
+        badge(s, x + (0.45 if left else tw - 0.45), y + 0.45, 0.56, pal[j], c["icon"], tone_for(pal[j]))
+        text(s, c["title"], x + 0.85 if left else x + 0.2, y + 0.2, tw - 1.05, 0.5, size=fit(c["title"], 12.5, 26), bold=True, color=B["DK"], align="l" if left else "r", anchor="m")
+        text(s, c["text"], x + 0.25 if left else x + 0.85, y + 0.85, tw - 1.1, 0.8, size=fit(c["text"], 9.5, 90), color=B["GREY"], align="l" if left else "r")
+    oval(s, mx + mw / 2, my + mh / 2, 1.6, B["DK"], line="FFFFFF")
+    text(s, d["centre"], mx + mw / 2 - 0.7, my + mh / 2 - 0.35, 1.4, 0.7, size=fit(d["centre"], 11, 18), bold=True, color=B["G"], align="c", anchor="m")
+    if d.get("tagline"):
+        rect(s, L, 5.6, FW, 0.62, B["DK"])
+        text(s, d["tagline"], L + 0.25, 5.6, FW - 0.5, 0.62, size=fit(d["tagline"], 13, 90), bold=True, color="FFFFFF", align="c", anchor="m")
+
+
+# ---- Overflow check ------------------------------------------------------------------
+def estimate_overflow(slide):
+    """Render one slide off-screen, log every text box, and estimate which ones overflow.
+    Open Sans averages ~0.53 em per character; line height ~1.2 em."""
+    global RECORD
+    RECORD = []
+    try:
+        prs = Presentation(); prs.slide_width, prs.slide_height = I(W), I(H)
+        RENDERERS[slide["layout"]](prs, slide)
+        boxes = RECORD
+    finally:
+        RECORD = None
+    problems = []
+    for b in boxes:
+        need = 0.0
+        for para in b["paras"]:
+            size = max((sz for _, sz, _ in para), default=10)
+            chars = sum(len(t) * (1.06 if bold else 1.0) for t, _, bold in para)
+            if not chars:
+                need += size * 1.2 / 72
+                continue
+            per_line = max(1, int(b["w"] / (size * 0.53 / 72)))
+            lines = math.ceil(chars / per_line)
+            need += lines * size * 1.2 * b["spacing"] / 72
+        if need > b["h"] + 0.02:
+            txt = " ".join(t for para in b["paras"] for t, _, _ in para).strip()
+            if txt:
+                cut = int(100 * (1 - b["h"] / need))
+                problems.append(f'Text overflows its box; cut it by about {max(cut, 15)}%: "{txt[:90]}"')
+    return problems
+
+
 RENDERERS = {"cover": render_cover, "columns": render_columns, "timeline": render_timeline,
-             "grid": render_grid, "closing": render_closing}
+             "grid": render_grid, "flow": render_flow, "stack": render_stack, "hub": render_hub,
+             "comparison": render_comparison, "quad": render_quad, "closing": render_closing}
 
 
 def render_deck(slides, path=None):

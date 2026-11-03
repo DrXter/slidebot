@@ -11,6 +11,10 @@ LIMITS = {
     "tagline": 8, "items": 11, "panel_items": 7, "outcome": 14, "dark_text": 10,
     "header": 5, "banner_left": 32, "banner_right": 26, "banner": 30,
     "card_title": 8, "card_text": 32, "row_name": 6, "milestone": 10, "side_item": 10, "side_title": 6,
+    "step_title": 5, "step_text": 16, "label": 5, "principle": 7, "loop_note": 10, "branch_text": 20,
+    "layer_title": 5, "kicker_s": 5, "chip": 5, "pair": 7, "callout": 10, "spoke_title": 5, "spoke_item": 7,
+    "centre": 5, "panel_note": 25, "compare": 8, "highlight_text": 30, "quad_title": 5, "quad_text": 20,
+    "block_title": 4, "block_text": 22, "tagline_q": 16,
 }
 FLUFF = ["leverage", "leveraging", "synergy", "synergies", "seamless", "seamlessly", "robust", "cutting-edge",
          "best-in-class", "world-class", "holistic", "game-changer", "game-changing", "unlock", "empower",
@@ -52,6 +56,47 @@ def texts(slide):
         for i, c in enumerate(slide.get("cards", []), 1):
             yield f"cards[{i}].title", "card_title", c.get("title", "")
             yield f"cards[{i}].text", "card_text", c.get("text", "")
+    elif lay == "flow":
+        for i, st in enumerate(slide.get("steps", []), 1):
+            yield f"steps[{i}].title", "step_title", st.get("title", "")
+            yield f"steps[{i}].text", "step_text", st.get("text", "")
+            yield f"steps[{i}].label", "label", st.get("label", "")
+        for i, p in enumerate(slide.get("principles", []), 1):
+            yield f"principles[{i}]", "principle", p
+        yield "loop_note", "loop_note", slide.get("loop_note", "")
+        yield "branch_text", "branch_text", slide.get("branch_text", "")
+    elif lay == "stack":
+        for i, ly in enumerate(slide.get("layers", []), 1):
+            yield f"layers[{i}].title", "layer_title", ly.get("title", "")
+            yield f"layers[{i}].kicker", "kicker_s", ly.get("kicker", "")
+            for j, c in enumerate(ly.get("chips", []), 1):
+                yield f"layers[{i}].chips[{j}]", "chip", c
+        for i, p in enumerate(slide.get("side_pairs", []), 1):
+            for j, t in enumerate(p[:2], 1):
+                yield f"side_pairs[{i}][{j}]", "pair", t
+        yield "callout", "callout", slide.get("callout", "")
+    elif lay == "hub":
+        yield "centre", "centre", slide.get("centre", "")
+        for i, sp in enumerate(slide.get("spokes", []), 1):
+            yield f"spokes[{i}].title", "spoke_title", sp.get("title", "")
+            for j, it in enumerate(sp.get("items", []), 1):
+                yield f"spokes[{i}].items[{j}]", "spoke_item", it
+        yield "panel_note", "panel_note", slide.get("panel_note", "")
+    elif lay == "comparison":
+        for i, r in enumerate(slide.get("rows", []), 1):
+            yield f"rows[{i}].before", "compare", r.get("before", "")
+            yield f"rows[{i}].after", "compare", r.get("after", "")
+        yield "highlight_text", "highlight_text", slide.get("highlight_text", "")
+    elif lay == "quad":
+        for k in ("block_a_title", "block_b_title"):
+            yield k, "block_title", slide.get(k, "")
+        for k in ("block_a_text", "block_b_text"):
+            yield k, "block_text", slide.get(k, "")
+        yield "centre", "centre", slide.get("centre", "")
+        yield "tagline", "tagline_q", slide.get("tagline", "")
+        for i, c in enumerate(slide.get("cards", []), 1):
+            yield f"cards[{i}].title", "quad_title", c.get("title", "")
+            yield f"cards[{i}].text", "quad_text", c.get("text", "")
     elif lay == "timeline":
         for i, r in enumerate(slide.get("rows", []), 1):
             yield f"rows[{i}].name", "row_name", r.get("name", "")
@@ -93,9 +138,15 @@ def autofix(slide):
     return slide
 
 
-def check(slide, source=""):
+def check(slide, source="", overflow=True):
     """Return a list of human-readable issues for the model to fix."""
     issues = []
+    if overflow:
+        try:
+            from renderer import estimate_overflow
+            issues += estimate_overflow(slide)
+        except Exception:
+            pass
     src_nums = numbers(source)
     seen = {}
     for path, kind, t in texts(slide):
@@ -103,7 +154,7 @@ def check(slide, source=""):
         n = words(t)
         if lim and n > lim:
             issues.append(f"{path}: {n} words, max {lim}. Shorten: \"{t}\"")
-        if kind in ("title", "tagline", "header", "card_title", "items", "panel_items", "row_name") and title_case(t):
+        if kind in ("title", "tagline", "header", "card_title", "items", "panel_items", "row_name", "step_title", "layer_title", "chip", "spoke_title", "spoke_item", "quad_title", "compare") and title_case(t):
             issues.append(f"{path}: use sentence case, not Title Case: \"{t}\"")
         low = t.lower()
         for f in FLUFF:
@@ -111,10 +162,10 @@ def check(slide, source=""):
                 issues.append(f"{path}: remove the buzzword '{f}': \"{t}\"")
         if source:
             for num in numbers(t) - src_nums:
-                if len(num.strip(".,")) > 0 and not re.fullmatch(r"[1-9]", num):
+                if len(num.strip(".,")) > 0 and not re.fullmatch(r"[1-9]|20[2-3]\d", num):
                     issues.append(f"{path}: the number '{num}' is not in the source. Remove it or use a figure from the source.")
         key = low.strip()
-        if key and kind in ("items", "panel_items", "card_title", "tagline") and key in seen:
+        if key and kind in ("items", "panel_items", "card_title", "tagline", "step_title", "chip", "spoke_item", "quad_title", "compare") and key in seen:
             issues.append(f"{path}: duplicates {seen[key]}. Make each point distinct.")
         seen.setdefault(key, path)
     if slide.get("layout") == "columns":
